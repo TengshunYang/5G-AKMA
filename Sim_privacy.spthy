@@ -1,0 +1,90 @@
+theory sim_privacy
+
+begin
+
+/*
+Much simplified Tamarin model which only contains the second part of 5G AKMA service, i.e. messages exchanged between UE and AF
+*/
+builtins: multiset
+
+functions: // K_AF functions
+KDF_AF/2,
+f/2
+
+rule Init_AF:
+  [Fr(~id_AF)]
+  --[ Once('AF') ]->
+  [!AF(~id_AF)]
+
+rule supi_supply:
+  [Fr(~a), Fr(~b)]
+	--[ Once('SUPI_supply') ]->
+	[!SUPI_Init(~a+~b),
+   SUPI(~a), 
+   SUPI(diff(~a,~b))]
+
+rule Init_Pri:
+  [!SUPI_Init(~SUPI+z), 
+   Fr(~K_AF),
+   Fr(~A_TID),
+   Fr(~id_HN),
+   Fr(~K_AKMA)]
+  --[ //Executability
+      Pri_Authentication(~SUPI) ]->
+  [Sub(~SUPI, ~id_HN), 
+   UE(~SUPI, <~A_TID, ~id_HN>, ~K_AKMA), 
+   HN(~SUPI, <~A_TID, ~id_HN>, ~K_AKMA)]
+
+rule UE_send_request:
+  let
+    K_AF = KDF_AF(~K_AKMA, ~id_AF)
+    msg = <~A_TID, ~id_HN>
+  in
+  [Fr(~tid), 
+   !AF(~id_AF), 
+   UE(~SUPI, <~A_TID, ~id_HN>, ~K_AKMA)]
+  --[ //Executability
+      UE_send_request(~SUPI) ]->
+  [UE_KEY(~tid, ~SUPI, <~A_TID, ~id_HN>, ~K_AKMA, K_AF), 
+   Out(msg)]
+
+rule AF_response:
+  let
+    msg = <~A_TID, ~id_HN>
+    K_AF = KDF_AF(~K_AKMA, ~id_AF)
+    confmess1 = f(K_AF, 'AF')
+  in 
+  [In(msg),
+   !AF(~id_AF),
+   HN(~SUPI, <~A_TID, ~id_HN>, ~K_AKMA)]
+  --[ //Executability
+      AF_session_response(~id_AF, K_AF) ]->
+  [AF_Confirmation(~id_AF, K_AF, <~A_TID, ~id_HN>),
+   Out(confmess1)]
+
+rule UE_Key_Confirmation:
+  let
+    confmess2 = f(K_AF, 'UE')
+  in
+  [ In(f(K_AF, 'AF')),
+    UE_KEY(~tid, ~SUPI, <~A_TID, ~id_HN>, ~K_AKMA, K_AF),
+    !AF(~id_AF) ]
+  --[
+      //Executability
+      UE_Key_Confirmation(~SUPI, K_AF)
+  ]->
+  [ Out(confmess2) ]
+
+rule AF_Key_Confirmation:
+  [ In(f(K_AF, 'UE')), 
+    AF_Confirmation(~id_AF, K_AF, <A_TID, ~id_HN>) ]
+  --[
+      //Executability
+      End_protocol(~id_AF, K_AF) 
+  ]->
+  []
+
+restriction once:
+  " All a #i #j. Once(a)@i & Once(a)@j ==> #i = #j "
+
+end
